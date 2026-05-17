@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://judo-iq.local/schemas/analysis_result.schema.json",
+  "title": "JudoIQ Analysis Result",
+  "type": "object",
+  "required": ["videoName", "durationSeconds", "attacks", "successfulThrows", "failedThrows", "events"],
+  "properties": {
+    "videoName": {
+      "type": "string"
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tachiwazaSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "newazaSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "attacks": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "successfulThrows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failedThrows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "annotatedVideoPath": {
+      "type": "string"
+    },
+    "reportPath": {
+      "type": "string"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timeSeconds", "type", "result"],
+        "properties": {
+          "timeSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "type": {
+            "type": "string",
+            "enum": ["attack"]
+          },
+          "result": {
+            "type": "string",
+            "enum": ["successful_throw", "failed_attack"]
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

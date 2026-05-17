@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+backend/.venv/
+
+# Models and generated media
+yolov8n-pose.pt
+backend/yolov8n-pose.pt
+backend/models/*.pt
+backend/outputs/
+
+# Local input videos
+backend/videos/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+front-end/android/local.properties
+front-end/**/GeneratedPluginRegistrant.*
+front-end/ios/Flutter/Generated.xcconfig
+front-end/ios/Flutter/flutter_export_environment.sh
+front-end/ios/Flutter/ephemeral/
+
+# OS / editor
+.DS_Store

@@ -1,0 +1,22 @@
+name: judo_iq_frontend
+description: Flutter frontend for JudoIQ analytics.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  file_picker: ^8.0.0
+  http: ^1.2.0
+  video_player: ^2.8.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
