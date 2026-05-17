@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/api/analysis_api_client.dart';
 import '../../core/models/analysis_result.dart';
+
+const _backendBaseUrl = 'http://127.0.0.1:8000';
 
 class AnalysisPage extends StatefulWidget {
   const AnalysisPage({super.key});
@@ -180,6 +183,10 @@ class _WorkspacePanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 _ClipInfo(selectedClip: selectedClip),
+                if (isAnalyzing) ...[
+                  const SizedBox(height: 16),
+                  const _AnalysisProgress(),
+                ],
                 if (errorMessage != null) ...[
                   const SizedBox(height: 12),
                   _InfoBox(title: 'Blad analizy', body: errorMessage!),
@@ -220,14 +227,73 @@ class _ClipInfo extends StatelessWidget {
   }
 }
 
-class _VideoPreviewCard extends StatelessWidget {
+class _VideoPreviewCard extends StatefulWidget {
   const _VideoPreviewCard({required this.selectedClip, required this.result});
 
   final PlatformFile? selectedClip;
   final AnalysisResult? result;
 
   @override
+  State<_VideoPreviewCard> createState() => _VideoPreviewCardState();
+}
+
+class _VideoPreviewCardState extends State<_VideoPreviewCard> {
+  VideoPlayerController? _controller;
+  String? _loadedUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncController();
+  }
+
+  @override
+  void didUpdateWidget(covariant _VideoPreviewCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncController();
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _syncController() {
+    final relativeUrl = widget.result?.annotatedVideoUrl;
+    if (relativeUrl == null) {
+      _disposeController();
+      return;
+    }
+
+    final nextUrl = relativeUrl.startsWith('http') ? relativeUrl : '$_backendBaseUrl$relativeUrl';
+    if (_loadedUrl == nextUrl) {
+      return;
+    }
+
+    _disposeController();
+    _loadedUrl = nextUrl;
+    final controller = VideoPlayerController.networkUrl(Uri.parse(nextUrl));
+    _controller = controller;
+    controller.initialize().then((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  void _disposeController() {
+    _controller?.dispose();
+    _controller = null;
+    _loadedUrl = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = _controller;
+    final isReady = controller != null && controller.value.isInitialized;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -236,36 +302,57 @@ class _VideoPreviewCard extends StatelessWidget {
           children: [
             const _SectionTitle(
               title: 'Podglad klipu',
-              subtitle: 'Miejsce na odtwarzacz wybranego lub anotowanego wideo.',
+              subtitle: 'Po analizie odtworzysz tutaj klip z naniesionymi anotacjami.',
             ),
             const SizedBox(height: 20),
             AspectRatio(
               aspectRatio: 16 / 9,
-              child: DecoratedBox(
+              child: Container(
                 decoration: BoxDecoration(
                   color: const Color(0xFFE9EEF5),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFD5DDE8)),
                 ),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.play_circle_outline, size: 64, color: Color(0xFF1F4E79)),
-                      const SizedBox(height: 12),
-                      Text(
-                        selectedClip?.name ?? 'Wybierz klip do podgladu',
-                        style: Theme.of(context).textTheme.titleMedium,
+                clipBehavior: Clip.antiAlias,
+                child: isReady
+                    ? Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          AspectRatio(
+                            aspectRatio: controller.value.aspectRatio,
+                            child: VideoPlayer(controller),
+                          ),
+                          Positioned(
+                            bottom: 16,
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  controller.value.isPlaying ? controller.pause() : controller.play();
+                                });
+                              },
+                              icon: Icon(controller.value.isPlaying ? Icons.pause : Icons.play_arrow),
+                              label: Text(controller.value.isPlaying ? 'Pauza' : 'Odtworz'),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.play_circle_outline, size: 64, color: Color(0xFF1F4E79)),
+                            const SizedBox(height: 12),
+                            Text(
+                              widget.result == null
+                                  ? widget.selectedClip?.name ?? 'Wybierz klip do podgladu'
+                                  : 'Laduje anotowany klip...',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ],
+                        ),
                       ),
-                      if (result != null) ...[
-                        const SizedBox(height: 8),
-                        Text('Gotowy klip: ${result!.annotatedVideoPath}'),
-                      ],
-                    ],
-                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -334,10 +421,9 @@ class _ReportPanel extends StatelessWidget {
             else ...[
               _StatsGrid(result: result!),
               const SizedBox(height: 24),
-              Text('Zdarzenia', style: Theme.of(context).textTheme.titleLarge),
+              Text('Ataki wykryte w czasie walki', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 12),
-              for (final event in result!.events)
-                _EventTile(event: event),
+              _EventsTable(events: result!.events),
               const SizedBox(height: 16),
               _InfoBox(title: 'Plik raportu', body: result!.reportPath),
             ],
@@ -396,35 +482,71 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _EventTile extends StatelessWidget {
-  const _EventTile({required this.event});
+class _EventsTable extends StatelessWidget {
+  const _EventsTable({required this.events});
 
-  final AnalysisEvent event;
+  final List<AnalysisEvent> events;
+
+  @override
+  Widget build(BuildContext context) {
+    if (events.isEmpty) {
+      return const _InfoBox(
+        title: 'Brak wykrytych atakow',
+        body: 'Analiza nie zwrocila zdarzen ataku dla tego klipu.',
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F8FB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE0E6EF)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingTextStyle: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF182230)),
+          columns: const [
+            DataColumn(label: Text('Sekunda')),
+            DataColumn(label: Text('Rezultat')),
+            DataColumn(label: Text('Opis')),
+          ],
+          rows: [
+            for (final event in events)
+              DataRow(
+                cells: [
+                  DataCell(Text('${event.timeSeconds.toStringAsFixed(1)}s')),
+                  DataCell(Text(event.result)),
+                  DataCell(SizedBox(width: 260, child: Text(event.description))),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnalysisProgress extends StatelessWidget {
+  const _AnalysisProgress();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF6F8FB),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE0E6EF)),
       ),
-      child: Row(
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${event.timeSeconds.toStringAsFixed(1)}s', style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(event.result, style: const TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(event.description),
-              ],
-            ),
-          ),
+          Text('Analiza w toku', style: TextStyle(fontWeight: FontWeight.w800)),
+          SizedBox(height: 10),
+          LinearProgressIndicator(),
+          SizedBox(height: 8),
+          Text('Przetwarzanie klipu, generowanie anotacji i raportu...'),
         ],
       ),
     );

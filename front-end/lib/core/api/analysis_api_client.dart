@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import '../models/analysis_result.dart';
 
 class AnalysisApiClient {
-  const AnalysisApiClient({this.baseUrl = 'http://localhost:8000'});
+  const AnalysisApiClient({this.baseUrl = 'http://127.0.0.1:8000'});
 
   final String baseUrl;
 
