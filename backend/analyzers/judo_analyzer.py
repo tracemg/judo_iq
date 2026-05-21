@@ -7,7 +7,9 @@ import sys
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
+
+ProgressCallback = Callable[[dict], None]
 
 import cv2
 import numpy as np
@@ -449,8 +451,16 @@ def build_analysis_result(
     }
 
 
-def analyze(video_path: Path) -> dict:
+def analyze(video_path: Path, on_progress: Optional[ProgressCallback] = None) -> dict:
+    def emit_progress(phase: str, percent: float, **extra: object) -> None:
+        if on_progress is None:
+            return
+        payload: dict = {"phase": phase, "percent": round(min(100.0, max(0.0, percent)), 1)}
+        payload.update(extra)
+        on_progress(payload)
+
     model = YOLO(resolve_model_path())
+    emit_progress("loading_model", 2.0)
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Nie mozna otworzyc: {video_path}")
@@ -458,11 +468,13 @@ def analyze(video_path: Path) -> dict:
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     if fps <= 0:
         fps = 30
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     window_size = int(fps * 2.0)
     cooldown_size = int(fps * 3.0)
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     dt = 1.0 / fps
+    emit_progress("starting", 5.0, currentFrame=0, totalFrames=total_frames, fps=fps)
 
     VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -646,6 +658,19 @@ def analyze(video_path: Path) -> dict:
         )
         writer.write(frame)
 
+        if on_progress and (frame_i % 15 == 0 or frame_i == 0):
+            if total_frames > 0:
+                percent = 5.0 + (frame_i / total_frames) * 90.0
+            else:
+                percent = 5.0
+            emit_progress(
+                "processing",
+                percent,
+                currentFrame=frame_i + 1,
+                totalFrames=total_frames,
+                timeSeconds=round(t, 2),
+            )
+
         if combined is not None and recently_touching and not attack.active and frame_i >= attack.cooldown_until:
             was_touching = True
         elif not attack.active and frame_i >= attack.cooldown_until:
@@ -700,6 +725,7 @@ def analyze(video_path: Path) -> dict:
     cap.release()
     writer.release()
 
+    emit_progress("finalizing", 96.0, currentFrame=frame_i, totalFrames=total_frames)
     duration = frame_i / fps
     report_path = REPORTS_DIR / f"raport_{video_path.stem}.txt"
     write_report(report_path, video_path, duration, stats)
@@ -710,6 +736,7 @@ def analyze(video_path: Path) -> dict:
         f"Rzuty={stats.successful_throws}, "
         f"Nieudane={stats.failed_throws}"
     )
+    emit_progress("done", 100.0, currentFrame=frame_i, totalFrames=total_frames)
     return build_analysis_result(video_path, duration, stats, out_path, report_path)
 
 

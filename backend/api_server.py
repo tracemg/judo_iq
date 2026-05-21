@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import shutil
 import sys
+import threading
 import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parent
@@ -69,3 +73,58 @@ async def analyze_video(file: UploadFile = File(...)) -> dict:
     result["annotatedVideoUrl"] = f"/videos/{annotated_name}"
     result["reportUrl"] = f"/reports/{report_name}"
     return result
+
+
+def _enrich_result(result: dict) -> dict:
+    annotated_name = Path(result["annotatedVideoPath"]).name
+    report_name = Path(result["reportPath"]).name
+    result["annotatedVideoUrl"] = f"/videos/{annotated_name}"
+    result["reportUrl"] = f"/reports/{report_name}"
+    return result
+
+
+@app.post("/analyze/stream")
+async def analyze_video_stream(file: UploadFile = File(...)) -> StreamingResponse:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in VIDEO_EXT:
+        raise HTTPException(status_code=400, detail="Unsupported video format")
+
+    safe_stem = Path(file.filename or "clip").stem.replace(" ", "_")
+    upload_path = UPLOADS_DIR / f"{safe_stem}_{uuid.uuid4().hex[:8]}{suffix}"
+
+    with upload_path.open("wb") as output:
+        shutil.copyfileobj(file.file, output)
+
+    async def event_stream():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def on_progress(payload: dict) -> None:
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "progress", **payload},
+            )
+
+        def worker() -> None:
+            try:
+                result = analyze(upload_path, on_progress=on_progress)
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    {"type": "result", "data": _enrich_result(result)},
+                )
+            except Exception as exc:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    {"type": "error", "message": str(exc)},
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+        yield json.dumps({"type": "progress", "phase": "upload", "percent": 1.0}) + "\n"
+
+        while True:
+            item = await queue.get()
+            yield json.dumps(item, default=str) + "\n"
+            if item.get("type") in {"result", "error"}:
+                break
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
